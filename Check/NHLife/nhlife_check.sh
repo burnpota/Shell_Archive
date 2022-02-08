@@ -5,7 +5,7 @@ KERNELVER=$(uname -r)
 RHELVER=$(cat /etc/redhat-release)
 RHELVER2=$(cat /etc/redhat-release | awk '{print $7}' | awk -F "." '{print $1}')
 LOG_EXTRACT="(fail|down|error|warn|crit|stop|abort)"
-LOG_FILTER="(CIFS VFS|Status code returned|rngd: failed fips test|nsrexexd: page allocation failure)"
+LOG_FILTER="(CIFS VFS|Status code returned|rngd: failed fips test|nsrexexd: page allocation failure|override|preferred|interrupt|pci.*BAR|SATA link down|postfix|BERT|systemd: Stop|Started Cleaning Up and Shutting Down Daemons|System Boot/Shutdown|Bring up/down networking)"
 
 CHKSYS="/opt/timegate"					
 DIFFDIR="${CHKSYS}/`date +%Y%m`"		
@@ -109,7 +109,7 @@ function sys_cpu(){
     printf_BOLD "Checking CPU Status\n"
     CPUIDLE=$(vmstat | sed -n 3p | awk '{print 100-$15}') 
     printf "\t'--- CPU Usage : "
-    printf_BOLD " ${CPUIDLE}%%\n"
+    printf_RED " ${CPUIDLE} %%\n"
 	echo "CPU usage : ${CPUIDLE}%" > $DIFFDIRSYS/CPU_usage
 }
 
@@ -158,8 +158,8 @@ function filesys_df() {
     then
         print_nok
 		printf "\t'---"
-        df -TPh | sed '1d' | sed 's/%//g' |  awk '$6 > 80{print $1"\t"$6"%"}'
-        df -TPh | sed '1d' | sed 's/%//g' |  awk '$6 > 80{print $1"\t"$6"%"}' >> $DIFFDIRSYS/FS_usage
+        df -TPh | sed '1d' | sed 's/%//g' | grep -v 'iso9660' | awk '$6 > 80{print $1"\t"$6"%"}'
+        df -TPh | sed '1d' | sed 's/%//g' | grep -v 'iso9660' | awk '$6 > 80{print $1"\t"$6"%"}' >> $DIFFDIRSYS/FS_usage
     else
         print_ok
     fi
@@ -254,9 +254,9 @@ function chkuptime(){
 
 function net_ping_test(){
 	GWADDR=$(route -n | grep '^0.0.0.0' | awk '{print $2}') 
-	printf_BOLD "Checking ping test (wait for seconds) ....."
+	printf_BOLD "Checking ping2GW test (wait for seconds) ....."
 	PINGRESULT=$(ping -c 4 $GWADDR  | tail -2 | sed '2d') 
-	PINGCHECK=$(echo $PINGRESULT | awk '{print $6'}) 
+	PINGCHECK=$(echo $PINGRESULT | awk '{print $6}') 
 	
 	if [ $PINGCHECK == "0%" ]
 	then
@@ -272,7 +272,7 @@ function net_drop_count(){
 	SYS_NIC_PATH="/sys/class/net" 
 	ARR_NIC=($(ls $SYS_NIC_PATH | egrep -v '(lo|pan|virbr|docker|bonding_masters)')) 
 
-	printf_BOLD "Checking NIC STAUTS \n"
+	printf_BOLD "Checking NIC STATUS \n"
 	for i in ${ARR_NIC[@]}
 	do
 		printf "\t'-- ${i} status : "
@@ -281,12 +281,29 @@ function net_drop_count(){
 		   	print_up
 			RX_DROP_COUNT=$(cat $SYS_NIC_PATH/$i/statistics/rx_dropped) 
 			TX_DROP_COUNT=$(cat $SYS_NIC_PATH/$i/statistics/tx_dropped) 
-			printf "\t  '--- ${i} checking drop count ....."
-			if [ $RX_DROP_COUNT -eq 0 -a $TX_DROP_COUNT -eq 0 ] 
+			RX_ERROR_COUNT=$(cat $SYS_NIC_PATH/$i/statistics/rx_errors) 
+			TX_ERROR_COUNT=$(cat $SYS_NIC_PATH/$i/statistics/tx_errors) 
+			printf "\t  '--- ${i} checking error/drop count ....."
+			if [ $RX_DROP_COUNT -eq 0 -a $TX_DROP_COUNT -eq 0 -a $RX_ERROR_COUNT -eq 0 -a $TX_ERROR_COUNT -eq 0 ] 
 			then
 				print_ok
 			else
 				print_nok
+
+				if [ ! $RX_ERROR_COUNT -eq 0 ] 
+				then
+					printf "\t\t\t'-- RX errors count : "
+					printf_RED "${RX_ERROR_COUNT}"
+					echo "${i} :: RX_Errors : $RX_ERROR_COUNT" >> $DIFFDIRERR/NIC_errors
+				fi
+
+				if [ ! $TX_ERROR_COUNT -eq 0 ] 
+				then
+					printf "\t\t\t'-- TX errors count : "
+					printf_RED "${TX_ERROR_COUNT}"
+					echo "${i} :: TX_Errors : $TX_ERROR_COUNT" >> $DIFFDIRERR/NIC_errors
+				fi
+
 				if [ ! $RX_DROP_COUNT -eq 0 ]
 				then
 					printf "\t\t\t'-- RX drop count : "
@@ -298,9 +315,11 @@ function net_drop_count(){
 				then
 					printf "\t\t\t'-- TX drop count : "
 					printf_RED "${TX_DROP_COUNT}"
-					echo "${i} :: TX_Dropped : $RX_DROP_COUNT" >> $DIFFDIRERR/NIC_dropped
+					echo "${i} :: TX_Dropped : $TX_DROP_COUNT" >> $DIFFDIRERR/NIC_dropped
 				fi
 			fi
+		else
+			print_down
 		fi
 	done
 }
@@ -330,7 +349,7 @@ function zombie_pro(){
 ################################
 
 function kdump_stat(){
-	printf "kdump status : "
+	printf_BOLD "kdump status : "
 	if [ $RHELVER2 -ge 7 ] 
 	then
 		systemctl list-units | grep kdump | grep active >& /dev/null 
@@ -356,7 +375,7 @@ function kdump_stat(){
 }
 
 function kdump_conf(){
-	printf "kdump config : "
+	printf_BOLD "kdump config : "
 	cat /etc/kdump.conf | grep "^path /var/crash" >& /dev/null 
 	if [ $? -eq 0 ]
 	then
@@ -447,8 +466,8 @@ function bonding_chk(){
 	if [ $? -eq 0 ]
 	then
 	    print_nok
-		cat /proc/net/bonding/$1 | grep -B1 "MII Status: down" | awk -F ":" '{print $1": \033[1m"$2"\033[0m"}' | sed "s/^/         '--- /g" | sed "s/         '--- MII/            '--- MII/g"
-		cat /proc/net/bonding/$1 | grep -B1 "MII Status: down" |awk -F ":" '{print $1": \033[1m"$2"\033[0m"}' | sed "s/^/         '--- /g" | sed "s/         '--- MII/            '--- MII/g" >> $DIFFDIRERR/net_bonding_status
+		cat /proc/net/bonding/$1 | grep -B1 "MII Status: down" | awk -F ":" '{print $1": \033[1m"$2"\033[0m"}' | sed "s/^/         '--- /g" | sed "s/         '--- MII/\t\t\t'--- MII/g"
+		cat /proc/net/bonding/$1 | grep -B1 "MII Status: down" |awk -F ":" '{print $1": \033[1m"$2"\033[0m"}' | sed "s/^/         '--- /g" | sed "s/         '--- MII/\t\t\t'--- MII/g" >> $DIFFDIRERR/net_bonding_status
 	else
 	    print_ok
 	fi  
@@ -457,8 +476,8 @@ function bonding_chk(){
 	if [ $CNT_BOND_DOWN -ge 1 ]
 	then
 		print_nok
-		cat /proc/net/bonding/$1 | grep -v "Link Failure Count: 0" | grep -B4 "Link Failure Count" | egrep -v '(--|MII Status|Speed|Duplex)' | sed "s/^/         '--- /g" | sed "s/'--- Link Failure Count:/   '--- Link Failure Count:/g" | awk -F ":" '{print $1": \033[1m"$2"\033[0m"}'
-		cat /proc/net/bonding/$1 | grep -v "Link Failure Count: 0" | grep -B4 "Link Failure Count" | egrep -v '(--|MII Status|Speed|Duplex)' | sed "s/^/         '--- /g" | sed "s/'--- Link Failure Count:/   '--- Link Failure Count:/g" >> $DIFFDIRERR/net_bonding_down_cnt
+		cat /proc/net/bonding/$1 | grep -v "Link Failure Count: 0" | grep -B4 "Link Failure Count" | egrep -v '(--|MII Status|Speed|Duplex)' | sed "s/^/\t\t  '--- /g" | sed "s/'--- Link Failure Count:/\t'--- Link Failure Count:/g" | awk -F ":" '{print $1": \033[1m"$2"\033[0m"}'
+		cat /proc/net/bonding/$1 | grep -v "Link Failure Count: 0" | grep -B4 "Link Failure Count" | egrep -v '(--|MII Status|Speed|Duplex)' | sed "s/^/\t\t  '--- /g" | sed "s/'--- Link Failure Count:/\t'--- Link Failure Count:/g" >> $DIFFDIRERR/net_bonding_down_cnt
 	else
 		print_ok
 	fi
@@ -474,8 +493,8 @@ function teaming_chk(){
 	if [ $? -eq 0 ]
 	then
 	    print_nok
-		teamdctl $1 state | grep -B2 'link summary: down' | grep -v 'link watches' | sed "s/^/         '---/g" | sed "s/'---      link summary:/     '--- link summary:/g" | sed "s/'---  /'--- Slave Interface: /g" | awk -F ":" '{print $1": \033[1m"$2"\033[0m"}'
-		teamdctl $1 state | grep -B2 'link summary: down' | grep -v 'link watches' | sed "s/^/         '---/g" | sed "s/'---      link summary:/     '--- link summary:/g" | sed "s/'---  /'--- Slave Interface: /g" | awk -F ":" '{print $1": \033[1m"$2"\033[0m"}' >> $DIFFDIRERR/net_teaming_status
+		teamdctl $1 state | grep -B2 'link summary: down' | grep -v 'link watches' | sed "s/^/\t\t\t'---/g" | sed "s/'---      link summary:/           '--- link summary:/g" | sed "s/'---  /                   '--- Slave Interface: /g" | awk -F ":" '{print $1": \033[1m"$2"\033[0m"}'
+		teamdctl $1 state | grep -B2 'link summary: down' | grep -v 'link watches' | sed "s/^/\t\t\t'---/g" | sed "s/'---      link summary:/           '--- link summary:/g" | sed "s/'---  /                   '--- Slave Interface: /g" | awk -F ":" '{print $1": \033[1m"$2"\033[0m"}' >> $DIFFDIRERR/net_teaming_status
 	else
 	    print_ok
 	fi
@@ -494,7 +513,7 @@ function teaming_chk(){
 }
 
 function nic_dulplex(){
-	printf_BOLD "Bonding/Teaming check\n"
+	printf_BOLD "Checking Bonding/Teaming\n"
 	VIRT_NIC_CNT=${#ARR_VIRT_NIC[@]}
 	if [ $VIRT_NIC_CNT -eq 0 ] 
 	then
@@ -503,8 +522,7 @@ function nic_dulplex(){
 	else
 		for i in ${ARR_VIRT_NIC[@]}
 		do
-			NIC_DEV_TYPE=$(cat /etc/sysconfig/network-scripts/ifcfg-${i} | grep "DEVICETYPE" | awk -F "=" '{print $2}') 
-			if [ $NIC_DEV_TYPE == "Bond" ]
+			if [ -d /proc/net/bonding ]
 			then
 				bonding_chk $i 
 			else
@@ -571,22 +589,22 @@ function firewall_chk(){
 DATE_MONTH=`date | awk '{print $2}'`
 function log_chk(){
     cat /var/log/messages | egrep -i $LOG_EXTRACT | grep $DATE_MONTH | egrep -v "${LOG_FILTER}" > $DIFFDIRLOG/log_messages 
-	cat /var/log/secure > $DIFFDIRLOG/log_secure 
-    dmesg | egrep -i $LOG_EXTRACT > $DIFFDIRLOG/log_dmesg 
     printf_BOLD "Checking messages\n"
     printf "(Press Enter)"
     read
 	cat $DIFFDIRLOG/log_messages |more
-    echo ==========================================
-	printf_BOLD "Checking secures\n"
-	printf "(Press Enter)"
-	read
-	cat $DIFFDIRLOG/log_secure | more 
-    echo ==========================================
-    printf_BOLD "Checking dmesg\n" 
-    printf "(Press Enter)"
-    read
-	cat $DIFFDIRLOG/log_dmesg | more
+#    echo ==========================================
+#	cat /var/log/secure > $DIFFDIRLOG/log_secure 
+#	printf_BOLD "Checking secures\n"
+#	printf "(Press Enter)"
+#	read
+#	cat $DIFFDIRLOG/log_secure | more 
+#    echo ==========================================
+#    dmesg | egrep -i $LOG_EXTRACT | egrep -v "${LOG_FILTER}" > $DIFFDIRLOG/log_dmesg 
+#    printf_BOLD "Checking dmesg\n" 
+#    printf "(Press Enter)"
+#    read
+#	cat $DIFFDIRLOG/log_dmesg | more
 }
 
 
@@ -614,13 +632,10 @@ printf_YELLO "#### Checking FileSystem"
 	filesys_multipath
 
 printf "\n"
-printf_YELLO "#### System Uptime"
-	chkuptime
-
-printf "\n"
-printf_YELLO "#### Network Status"
+printf_YELLO "#### Checking Network"
 	net_ping_test
 	net_drop_count
+	nic_dulplex
 
 printf "\n"
 printf_YELLO "#### Checking Process"
@@ -636,12 +651,12 @@ printf_YELLO "#### Checking NTP"
 	ntp_status
 
 printf "\n"
-printf_YELLO "#### Checking Bonding"
-	nic_dulplex
-
-printf "\n"
 printf_YELLO "#### Checking firewall"
 	firewall_chk
+
+printf "\n"
+printf_YELLO "#### System Uptime"
+	chkuptime
 
 printf "\n"
 printf_YELLO "#### Checking Logs"
