@@ -108,7 +108,7 @@ function system_info(){
 function sys_cpu(){
     printf_BOLD "Checking CPU Status\n"
     CPUIDLE=$(vmstat | sed -n 3p | awk '{print 100-$15}') 
-    printf "   '--- CPU Usage : "
+    printf "\t'--- CPU Usage : "
     printf_BOLD " ${CPUIDLE}%%\n"
 	echo "CPU usage : ${CPUIDLE}%" > $DIFFDIRSYS/CPU_usage
 }
@@ -122,22 +122,29 @@ function sys_mem(){
     printf_BOLD "Checking Memory Space\n"
     MEMTOTAL=$(cat /proc/meminfo | grep MemTotal | awk '{printf "%.f", $2/1024}') 
     MEMUSED=$(cat /proc/meminfo | grep 'MemTotal\|MemFree\|Buffers\|Cached' | awk '{print $2}' | tr '\n' ' ' | awk '{printf "%.f", $1/1024-$2/1024-$3/1024-$4/1024}') 
-    printf "   '---  TOTAL Size : "
-    printf_RED "${MEMTOTAL}"
-    printf "   '---  USING Size : "
-	printf_RED "${MEMUSED}"
-	echo "Total : ${MEMTOTAL} / Used : ${MEMUSED}" > $DIFFDIRSYS/MEM_usage
+	MEMUSAGE=$((${MEMUSED}/${MEMTOTAL}*100))
+    printf "\t'---  TOTAL Size : "
+    printf_RED "${MEMTOTAL} MB"
+    printf "\t'---  USING Size : "
+	printf_RED "${MEMUSED} MB"
+	printf "\t\t'--- USAGE : "
+	printf_RED "${MEMUSAGE} %%"
+	
+	echo "Total : ${MEMTOTAL} MB / Used : ${MEMUSED} MB / USAGE : ${MEMUSAGE} %" > $DIFFDIRSYS/MEM_usage
 }
 
 function sys_swap(){
     printf_BOLD "Checking Swap Space\n"
     SWAPTOTAL=$(cat /proc/meminfo | grep SwapTotal | awk '{printf "%.f", $2/1024}')
     SWAPUSED=$(cat /proc/meminfo | grep 'SwapTotal\|SwapFree' | awk '{print $2}' | tr '\n' ' ' | awk '{printf "%.f", $1/1024-$2/1024}')
-    printf "   '---  TOTAL Size : "
-    printf_RED "${SWAPTOTAL}"
-    printf "   '---  USING Size : "
-	printf_RED "${SWAPUSED}"
-	echo "Total : ${SWAPTOTAL} / Used : ${SWAPUSED}" >> $DIFFDIRSYS/SWAP_usage
+	SWAPUSAGE=$((${SWAPUSED}/${SWAPTOTAL}*100))
+    printf "\t'---  TOTAL Size : "
+    printf_RED "${SWAPTOTAL} MB"
+    printf "\t'---  USING Size : "
+	printf_RED "${SWAPUSED} MB"
+	printf "\t\t'--- USAGE : "
+	printf_RED "${SWAPUSAGE} %%"
+	echo "Total : ${SWAPTOTAL} MB / Used : ${SWAPUSED} MB / USAGE : ${SWAPUSAGE} %" >> $DIFFDIRSYS/SWAP_usage
 }
 
 ################################
@@ -147,11 +154,11 @@ function sys_swap(){
 
 function filesys_df() {
     printf_BOLD "Checking Disk Usage ....."
-    DISKUSAGELI=`df -TPh | sed '1d' | sed 's/%//g' |  awk '$6 > 80{print $1"\t"$6"%"}' | wc -l` 
+    DISKUSAGELI=`df -TPh | sed '1d' | sed 's/%//g' | grep -v 'iso9660' |  awk '$6 > 80{print $1"\t"$6"%"}' | wc -l` 
     if [ $DISKUSAGELI -ge 1 ] 
     then
         print_nok
-		printf "   '---"
+		printf "\t'---"
         df -TPh | sed '1d' | sed 's/%//g' |  awk '$6 > 80{print $1"\t"$6"%"}'
         df -TPh | sed '1d' | sed 's/%//g' |  awk '$6 > 80{print $1"\t"$6"%"}' >> $DIFFDIRSYS/FS_usage
     else
@@ -161,7 +168,7 @@ function filesys_df() {
 
 function filesys_mount() {
     printf_BOLD "Checking Mount Point \n"
-    ARR_FSTAB=($(cat /etc/fstab | egrep -v '(^#|^$|swap|proc|tmpfs|devpts|sysfs|proc)' | awk '{print $1}' |  tr '\n' ' ')) 
+    ARR_FSTAB=($(cat /etc/fstab | egrep -v '(^#|^$|swap|proc|tmpfs|devpts|sysfs|proc|sr[0-9])' | awk '{print $1}' |  tr '\n' ' ')) 
     ARR_VGNAME=($(vgs | sed 1d | awk '{print $1}' | tr '\n' ' '))
     for i in ${ARR_FSTAB[@]} 
     do
@@ -174,7 +181,7 @@ function filesys_mount() {
                 if [ $? -eq 0 ]
                 then
                     MAPVAL=$(echo ${i} | awk -F "/" '{if($3=="mapper")print $0;else print "/"$2"/mapper/"$3"-"$4;}')
-                    printf "   '--- %s ..." $MAPVAL
+                    printf "\t'--- %s ..." $MAPVAL
                     cat /etc/mtab | grep $MAPVAL >& /dev/null
 			        if [ $? -eq 1 ]
 			        then
@@ -187,7 +194,7 @@ function filesys_mount() {
             done
         else 
             UUIDVAL=$(blkid | grep ${CHKPRE} | awk -F ":" '{print $1}') 
-            printf "   '--- %s ..." $UUIDVAL
+            printf "\t'--- %s ..." $UUIDVAL
             cat /etc/mtab | grep $UUIDVAL >& /dev/null 
         	if [ $? -eq 1 ]
 	        then
@@ -205,24 +212,24 @@ function filesys_multipath() {
     rpm -qa | grep device-mapper-multipath >& /dev/null 
     if [ $? -eq 1 ] 
     then
-        printf_RED "   '--- Multipath not installed"
+        printf_RED "\t'--- Multipath not installed"
     else
         multipath -ll | grep "DM multipath kernel driver not loaded" >& /dev/null 
         if [ $? -eq 0 ] 
         then
-            printf_RED "   '--- Multipath not configured"
+            printf_RED "\t'--- Multipath not configured"
         else
             CHECK_MULTI=$(multipath -ll | wc -l ) 
             if [ $CHECK_MULTI -eq 0 ] 
             then
-                printf_RED "   '--- Multipath not Setted up"
+                printf_RED "\t'--- Multipath not Setted up"
             else
-				printf "   '--- multipath status : "
+				printf "\t'--- multipath status : "
 				multipath -ll | egrep "(failed|offline|faulty)" >& /dev/null 
 				if [ $? -eq 0 ] 
 				then
 					print_nok
-					multipath -ll | egrep '(failed|faulty|offline)' | awk '{print "      \"--- "$2 " \033[1;31m "$3" \033[0m " $4" "$5" "$6" "$7}'
+					multipath -ll | egrep '(failed|faulty|offline)' | awk '{print "\t\t\"--- "$2 " \033[1;31m "$3" \033[0m " $4" "$5" "$6" "$7}'
 					multipath -ll | egrep "(failed|offline|faulty)" >> $DIFFDIRERR/multipath_status
 				else
 					print_ok 
@@ -269,13 +276,13 @@ function net_drop_count(){
 	printf_BOLD "Checking NIC STAUTS \n"
 	for i in ${ARR_NIC[@]}
 	do
-		printf "   '-- ${i} status : "
+		printf "\t'-- ${i} status : "
 		if [ `cat $SYS_NIC_PATH/$i/operstate` == "up" ] 
 		then
 		   	print_up
 			RX_DROP_COUNT=$(cat $SYS_NIC_PATH/$i/statistics/rx_dropped) 
 			TX_DROP_COUNT=$(cat $SYS_NIC_PATH/$i/statistics/tx_dropped) 
-			printf "     '--- ${i} checking drop count ....."
+			printf "\t  '--- ${i} checking drop count ....."
 			if [ $RX_DROP_COUNT -eq 0 -a $TX_DROP_COUNT -eq 0 ] 
 			then
 				print_ok
@@ -283,14 +290,14 @@ function net_drop_count(){
 				print_nok
 				if [ ! $RX_DROP_COUNT -eq 0 ]
 				then
-					printf "         '-- RX drop count : "
+					printf "\t\t\t'-- RX drop count : "
 					printf_RED "${RX_DROP_COUNT}"
 					echo "${i} :: RX_Dropped : $RX_DROP_COUNT" >> $DIFFDIRERR/NIC_dropped
 				fi
 
 				if [ ! $TX_DROP_COUNT -eq 0 ] 
 				then
-					printf "         '-- TX drop count : "
+					printf "\t\t\t'-- TX drop count : "
 					printf_RED "${TX_DROP_COUNT}"
 					echo "${i} :: TX_Dropped : $RX_DROP_COUNT" >> $DIFFDIRERR/NIC_dropped
 				fi
@@ -357,7 +364,7 @@ function kdump_conf(){
 		print_ok
 	else
 		print_nok
-		printf "   '--- "
+		printf "\t'--- "
 		printf_BOLD "Check /etc/kdump.conf!!"
 	fi
 }
@@ -367,12 +374,12 @@ function kdump_conf(){
 ################################
 
 function ntp_check(){
-	printf_BOLD "   '--- ntpd performance : "
+	printf_BOLD "\t'--- ntpd performance : "
 	ntpq -p | grep "No association ID's returned" >& /dev/null 
 	if [ $? -eq 0 ]
 	then
 		print_nok
-		printf "      '--- NTP Server is "
+		printf "\t\t'--- NTP Server is "
 		printf_RED "NOT SETTED UP"
 	else
 		ntpq -p | egrep -v '(jitter|^==|^\+|^\*)' >& /dev/null
@@ -388,12 +395,12 @@ function ntp_check(){
 }
 
 function chrony_check(){
-	printf_BOLD "   '--- chronyd performance : "
+	printf_BOLD "\t'--- chronyd performance : "
 	CHRONY_CNT=$(chronyc sources | sed -n 1p | awk '{print $6}') 
 	if [ $CHRONY_CNT -eq 0 ]
 	then
 		print_nok
-		printf "      '--- NTP Server is "
+		printf "\t\t'--- NTP Server is "
 		printf_RED "NOT SETTED UP"
 	else
 		chronyc sources | sed '1,3 d' | egrep -v '(\^*|\^+)' >& /dev/null 
@@ -415,7 +422,7 @@ function ntp_status(){
 	if [ $? -eq 1 ] 
 	then
 		print_down
-		printf "   '--- NTP daemon is "
+		printf "\t'--- NTP daemon is "
 		printf_RED "NOT RUNNING"
 	else
 		print_up
@@ -435,8 +442,8 @@ function ntp_status(){
 ARR_VIRT_NIC=($(ls /sys/devices/virtual/net | egrep -v '(lo|pan|virbr)')) 
 
 function bonding_chk(){
-	printf_BOLD "   '--- Checking ${1} \n"
-	printf "      '--- link status : "
+	printf_BOLD "\t'--- Checking ${1} \n"
+	printf "\t\t'--- link status : "
 	cat /proc/net/bonding/$1 | grep down >& /dev/null 
 	if [ $? -eq 0 ]
 	then
@@ -447,7 +454,7 @@ function bonding_chk(){
 	    print_ok
 	fi  
 	CNT_BOND_DOWN=$(cat /proc/net/bonding/$1 | grep "Link Failure Count:" | awk '($4>="1"){print $4}' | wc -l)
-	printf "      '--- down count : "
+	printf "\t\t'--- down count : "
 	if [ $CNT_BOND_DOWN -ge 1 ]
 	then
 		print_nok
@@ -456,14 +463,14 @@ function bonding_chk(){
 	else
 		print_ok
 	fi
-	printf "      '--- Bonding Mode:"
+	printf "\t\t'--- Bonding Mode:"
 	printf_BOLD "`cat /proc/net/bonding/$1 | grep "Bonding Mode" | awk -F ":" '{print $2}'`\n"
 }
 
 function teaming_chk(){
 	
-	printf_BOLD "   '--- Checking ${1} \n"
-	printf "      '--- link status : "
+	printf_BOLD "\t'--- Checking ${1} \n"
+	printf "\t\t'--- link status : "
 	teamdctl $1 state | grep link: | grep down >& /dev/null 
 	if [ $? -eq 0 ]
 	then
@@ -473,7 +480,7 @@ function teaming_chk(){
 	else
 	    print_ok
 	fi
-	printf "      '--- down count : "
+	printf "\t\t'--- down count : "
 	CNT_TEAM_DOWN=$(teamdctl $1 state | grep "down count:" | awk '($3>="1"){print $3}' | wc -l)
 	if [ $CNT_TEAM_DOWN -ge 1 ]
 	then
@@ -483,7 +490,7 @@ function teaming_chk(){
 	else
 		print_ok
 	fi
-	printf "      '---"
+	printf "\t\t'---"
 	printf_BOLD "`teamdctl $1 state | grep " runner:" `\n"
 }
 
@@ -492,7 +499,7 @@ function nic_dulplex(){
 	VIRT_NIC_CNT=${#ARR_VIRT_NIC[@]}
 	if [ $VIRT_NIC_CNT -eq 0 ] 
 	then
-		printf "   '--- "
+		printf "\t'--- "
 		printf_RED "There are none bonding/teaming"
 	else
 		for i in ${ARR_VIRT_NIC[@]}
@@ -517,7 +524,7 @@ function firewall_chk(){
 
 	if [ $RHELVER2 -ge 7 ] 
 	then
-		printf "   '--- firewalld active : "
+		printf "\t'--- firewalld active : "
 		systemctl status firewalld | grep Active: | grep " active" >& /dev/null 
 		if [ $? -eq 1 ] 
 		then
@@ -526,7 +533,7 @@ function firewall_chk(){
     		printf "[ \033[1;31mUP\033[0m ]\n"
 		fi
 		
-		printf "   '--- firewalld enabled : "
+		printf "\t'--- firewalld enabled : "
 		systemctl list-unit-files | grep firewalld | grep enable >& /dev/null 
 		if [ $? -eq 0 ] 
 		then
@@ -535,7 +542,7 @@ function firewall_chk(){
     		printf "[ \033[1;32mDISABLED\033[0m ]\n"
 		fi
 	else
-		printf "   '--- iptables active : "
+		printf "\t'--- iptables active : "
 		CHK_IPTABLE=$(iptables -nL | wc -l) 
 		if [ $CHK_IPTABLE -eq 8 ] 
 		then
@@ -543,12 +550,12 @@ function firewall_chk(){
 		else
     		printf "[ \034[1;31mUP\033[0m ]\n"
 		fi
-		printf "   '--- iptabled enabled : "
+		printf "\t'--- iptabled enabled : "
 		chkconfig --list iptables | egrep '(3:on|5:on)' >& /dev/null 
 		if [ $? -eq 0 ] 
 		then
 			printf "[ \033[1;31mENABLED\033[0m ]\n"
-			printf "      '--- \033[1;32m"
+			printf "\t\t'--- \033[1;32m"
 			chkconfig --list iptables | egrep '(3:on|5:on)' | awk '($5 == "3:on"){print $5}($7 == "5:on"){print $7}' | tr '\n' ' '
 			printf "\033[0m\n"
 		else
