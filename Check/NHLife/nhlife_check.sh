@@ -415,7 +415,16 @@ function ntp_check(){
 			ntpq -p | egrep -v '(jitter|^==|^\+|^\*)'
 			ntpq -p | egrep -v '(jitter|^==|^\+|^\*)' >> $DIFFDIRERR/ntpd
 		else
-			print_ok
+			NTPD_OFFSET=$(ntpq -p | grep '^\*' | awk '{printf "%d\n",$9}')
+			if [ $NTPD_OFFSET -ge 60 ]
+			then
+				print_nok
+				printf "\t\t\t'--- Offset value : "
+				printf_RED "${NTPD_OFFSET}"
+				echo "Offset value : ${NTPD_OFFSET}" >> $DIFFDIRERR/ntpd
+			else
+				print_ok	
+			fi
 		fi
 	fi
 }
@@ -429,14 +438,23 @@ function chrony_check(){
 		printf "\t\t'--- NTP Server is "
 		printf_RED "NOT SETTED UP"
 	else
-		chronyc sources | sed '1,3 d' | egrep -v '(\^*|\^+)' >& /dev/null 
+		chronyc sources | sed '1,3 d' | egrep -v '(^\^\*|^\^\+|^\^\-)' >& /dev/null
 		if [ $? -eq 0 ]
 		then
 			print_nok
-			chronyc sources | sed '1,3 d' | egrep -v '(\^*|\^+)' 
-			chronyc sources | sed '1,3 d' | egrep -v '(\^*|\^+)' >> $DIFFDIRERR/chrony
+			chronyc sources | sed '1,3 d' | egrep -v '(^\^\*|^\^\+|^\^\-)' 
+			chronyc sources | sed '1,3 d' | egrep -v '(^\^\*|^\^\+|^\^\-)' >> $DIFFDIRERR/chrony
 		else
-			print_ok
+			CHRONY_OFFSET=$(chronyc tracking | grep "RMS offset" |  awk '{printf "%d\n", $4}')
+			if [ $CHRONY_OFFSET -ge 60 ]
+			then
+				print_nok
+				printf "\t\t\t'--- Offset value : "
+				printf_RED "${CHRONY_OFFSET}"
+				echo "Offset value : ${CHRONY_OFFSET}" >> $DIFFDIRERR/chrony
+			else
+				print_ok
+			fi
 		fi
 	fi
 }
