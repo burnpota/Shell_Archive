@@ -332,11 +332,19 @@ function net_drop_count(){
 function zombie_pro(){
 	printf_BOLD "Checking Zombie process ..... "
 	ZOMBIE=$(ps aux | grep defunct | grep -v grep)
-	ps aux | grep defuct | grep -v grep >& /dev/null
+	ZOMBIE_LIST=($(ps aux | grep defunct | grep -i " z" | awk '{print $2}'))
+	ZOMBIE_CNT=${#ZOMBIE_LIST[@]}
+	ps aux | grep defunct | grep -v grep >& /dev/null
 	if [ $? -eq 0 ]
 	then
 		print_nok
-		echo $ZOMBIE
+		printf_BOLD "\t'-- Zombie Counts : "
+		printf_RED "${ZOMBIE_CNT}"
+		for i in ${ZOMBIE_LIST[@]}
+		do
+			printf "\t\t'-- PID : "
+			printf_RED "${i}"
+		done
 		echo $ZOMBIE >> $DIFFDIRERR/process_zombie
 	else
 		print_ok
