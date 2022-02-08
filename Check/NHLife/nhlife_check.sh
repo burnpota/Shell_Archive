@@ -129,7 +129,6 @@ function sys_mem(){
 	printf_RED "${MEMUSED} MB"
 	printf "\t\t'--- USAGE : "
 	printf_RED "${MEMUSAGE} %%"
-	
 	echo "Total : ${MEMTOTAL} MB / Used : ${MEMUSED} MB / USAGE : ${MEMUSAGE} %" > $DIFFDIRSYS/MEM_usage
 }
 
